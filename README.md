@@ -1,3 +1,14 @@
+
+
+
+THIS IS ALL WRONG
+=================
+Please disregard until I rewrite it properly
+
+
+
+
+
 # How to manage rich, scalable game state in Elm
 
 In this article I want to present a practical implementation to manage the state of a rich simulation game in a purely functional, strictly typed language.
