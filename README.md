@@ -1,10 +1,12 @@
-The architecture I used for Herzog Drei has served the game very well, so I thought to describe it quickly.
+The architecture I used for Herzog Drei has served the game very well, so I
+thought to describe it quickly.
 
 The goal is to be able to manage and update a complex, rich game state with a flat hierarchy,
 where everything can interact with everything else in every possible way.
 
 It's a practical implementation of the structure described by John Carmak in his
-[Quakecon 2013 talk](https://www.youtube.com/watch?v=1PhArSujR_A).
+[Quakecon 2013 talk](https://www.youtube.com/watch?v=1PhArSujR_A) and it makes
+heavy use of partially applied functions.
 
 
 
@@ -41,7 +43,7 @@ updateEverything gameState =
 
         unitDeltas : List Delta
         unitDeltas =
-            -- unitDelta : GameState -> Unit -> Delta
+            -- unitThink : GameState -> Unit -> Delta
             List.map (unitThink gameState) listOfAllUnits
 
         ...
@@ -50,7 +52,8 @@ updateEverything gameState =
         allChanges =
             [ victoryDelta
             , DeltaList unitDeltas
-            ...
+            , ...
+            , ...
             ]
     in
         applyGameDeltas allChanges gameState
@@ -106,19 +109,21 @@ updateUnit unitId updateFunction gameState =
 
 Ok, so how do I use this?
 =========================
-Let's say I want to describe what units can do: in this case, only move and
-heal nearby unuits.
+Let's say I want units to be able to move and heal nearby units.
+How would `unitThink` look like?
 
 ```elm
 unitThink : GameState -> Unit -> Delta
 unitThink gameState unit =
     let
+        deltaMove : Delta
         deltaMove =
             if hasDestination unit then
                 deltaUnit unit.id unitMove
             else
                 deltaNone
 
+        deltaHeal : Delta
         deltaHeal =
             if isHealer unit then
                 deltaUnitHealEveryone gameState unit
@@ -133,7 +138,7 @@ unitThink gameState unit =
 
 unitMove : GameState -> Unit -> Unit
 unitMove gameState unit =
-    { unit | position = Vec2.add unit.position + unit.speed }
+    { unit | position = Vec2.add unit.position unit.speed }
 
 
 deltaUnitHealEveryone : GameState -> Unit -> Delta
@@ -149,8 +154,9 @@ deltaUnitHealOneUnit healer healed =
         DeltaNone
     else
         DeltaList
-            [ deltaUnit healed.id (healUnitBy healer.healingSpeed)
-            , deltaSpawnHealingIcon healed.position
+            [ deltaSpawnHealingIcon healed.position
+            -- we use partial application on `healUnitBy`
+            , deltaUnit healed.id (healUnitBy healer.healingSpeed)
             ]
 
 
@@ -158,6 +164,54 @@ healUnitBy : Int -> GameState -> Unit -> Unit
 healUnitBy amount gameState unit =
     { unit | life = min (unit.life + healAmount) gameState.maxUnitLife }
 ```
+
+IMPORTANT: did you notice that the `unit` that appears in `unitThink` is not
+the same `unit` used in `unitMove`?
+
+The `unit` inside `unitThink` refers to the unit state *before* deltas are
+applied to the game state.
+
+The `unit` inside `unitMove` instead refers to the unit *during* the
+application of deltas.
+
+If more than one delta modify the same unit, the two `unit`s won't be the same.
+Be careful to distinguish the two, otherwise you might end up undoing what the
+previous delta did.
+
+
+
+Spawning stuff
+==============
+Things that affect the larger game, or that do not refer to existing units,
+can be always executed via `DeltaGame`:
+
+```elm
+deltaSpawnProjectile : Unit -> Unit -> Delta
+deltaSpawnProjectile unit target =
+    DeltaGame (addProjectile unit.position target.id)
+
+
+addProjectile : Vec2 -> UnitId -> GameState -> GameState
+addProjectile position targetId gameState =
+    let
+        projectile : Projectile
+        projectile =
+            { id = gameState.nextId
+            , position = position
+            , spawnTime = gameState.time
+            , targetUnitId = targetId
+            }
+
+        updatedProjectiles : Dict ProjectileId Projectile
+        updatedProjectiles =
+            Dict.insert projectile.id projectile gameState.projectilesById
+    in
+        { gameState | nextId = projectile.id + 1, projectilesById = updatedProjectiles }
+```
+
+Given a function that modifies the game state, such as `addProjectile`, we
+partially apply its arguments until only a `GameState -> GameState` function
+is left, and the function becomes the argument to `DeltaGame`.
 
 
 
@@ -172,13 +226,13 @@ again.
 
 My naive approach was to have a `cooldown` variable that stored the cooldown
 time left and reduce it at every tick, so that when it reached zero the
-unity would be ready to shoot again.
+unity would be ready to shoot:
 ```elm
 deltaUnitShoots : GameState -> Unit -> Unit -> Delta
 deltaUnitShoots gameState unit target =
     DeltaList
         [ deltaSpawnProjectile unit target
-        , deltaUnit unit.id (\gameState unit -> { unit | cooldown = gameState.attackCooldown })
+        , deltaUnit unit.id (\gameState u -> { u | cooldown = gameState.attackCooldown })
         ]
 
 
@@ -187,7 +241,7 @@ unitThink gameState unit =
     DeltaList
         [ ...
         , ...
-        , deltaUnit unit.id (\gameState unit -> { unit | cooldown = max 0 (unit.cooldown - 1) })
+        , deltaUnit unit.id (\gameState u -> { u | cooldown = max 0 (unit.cooldown - 1) })
         ]
 
 
@@ -205,7 +259,7 @@ deltaUnitShoots : GameState -> Unit -> Unit -> Delta
 deltaUnitShoots gameState unit target =
     DeltaList
         [ deltaSpawnProjectile unit target
-        , deltaUnit unit.id (\gameState unit -> { unit | cooldownEnd = gameState.time + gameState.attackCooldown })
+        , deltaUnit unit.id (\gameState u -> { u | cooldownEnd = gameState.time + gameState.attackCooldown })
         ]
 
 
@@ -214,7 +268,7 @@ unitThink gameState unit =
     DeltaList
         [ ...
         , ...
-        -- we can remove the delta entirely!
+        -- we can remove the deltaUnit call entirely!
         ]
 
 
@@ -222,7 +276,6 @@ unitCanFire : GameState -> Unit -> Bool
 unitCanFire gameState unit =
     gameState.time > unit.cooldownEnd
 ```
-
 
 
 Resolving conflicts: few units
@@ -245,15 +298,13 @@ healing power!
 In this case, you should have a single update function, so that the healing
 and the power loss become a single atomic operation:
 ```elm
-...
-
     DeltaList
         [ DeltaGame (heal healer.id healed.id)
         , deltaSpawnHealingIcon healed.position
         ]
+```
 
-...
-
+```elm
 heal : UnitId -> UnitId -> GameState -> GameState
 heal healerId healedId gameState =
     case Dict.get healerId gameState.unitsById (Dict.get healedId gameState.unitsById) of
