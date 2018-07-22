@@ -21,37 +21,37 @@ type
       -- don't change anything
     | DeltaNone
       -- change more than one thing
+      -- (useful for nesting and splitting your changes)
     | DeltaList (List Delta)
       -- do something that does NOT affect the game state such as playing sounds
     | DeltaSideEffect SideEffect
 
 
-gameManagerDelta : GameState -> Delta
-
-
-unitDelta : GameState -> Unit -> Delta
-
-
 updateEverything : GameState -> ( GameState, List SideEffect )
 updateEverything gameState =
     let
-        gameManagerDelta =
-            gameManagerThink gameState
+        victoryDelta : Delta
+        victoryDelta =
+            -- victoryConditionThink : GameState -> Delta
+            victoryConditionThink gameState
 
+        listOfAllUnits : List Unit
         listOfAllUnits =
             Dict.values gameState.unitsById
 
+        unitDeltas : List Delta
         unitDeltas =
+            -- unitDelta : GameState -> Unit -> Delta
             List.map (unitThink gameState) listOfAllUnits
 
         ...
 
+        allChanges : List Delta
         allChanges =
-            DeltaList
-                [ gameManagerDelta
-                , DeltaList unitDeltas
-                ...
-                ]
+            [ victoryDelta
+            , DeltaList unitDeltas
+            ...
+            ]
     in
         applyGameDeltas allChanges gameState
 
@@ -83,36 +83,51 @@ also as generic as it gets, so it will be useful to have some helper functions
 like:
 ```elm
 deltaUnit : UnitId -> (Game -> Unit -> Unit) -> Delta
-deltaUnit unitId updateUnit =
-    let
-        updateGameState gameState =
-            case Dict.get unitId gameState.unitsById of
-                Nothing ->
-                    gameState
+deltaUnit unitId updateFunction =
+    DeltaGame (updateUnit unitId updateFunction)
 
-                Just unit ->
-                    let
-                        updatedUnit =
-                            updateUnit gameState unit
-                    in
-                    { gameState | unitsById = Dict.insert unitId updatedUnit game.unitsById }
-    in
-    DeltaGame updateGame
+
+updateUnit : UnitId -> (Game -> Unit -> Unit) -> GameState -> GameState =
+updateUnit unitId updateFunction gameState =
+    case Dict.get unitId gameState.unitsById of
+        Nothing ->
+            gameState
+
+        Just unit ->
+            let
+                updatedUnit : Unit
+                updatedUnit =
+                    updateFunction gameState unit
+            in
+            { gameState | unitsById = Dict.insert unitId updatedUnit game.unitsById }
 ```
 
 
 
 Ok, so how do I use this?
 =========================
-`unitThink` describes all the changes that a particular unit wants to make in
-the game state:
+Let's say I want to describe what units can do: in this case, only move and
+heal nearby unuits.
 
 ```elm
 unitThink : GameState -> Unit -> Delta
 unitThink gameState unit =
+    let
+        deltaMove =
+            if hasDestination unit then
+                deltaUnit unit.id unitMove
+            else
+                deltaNone
+
+        deltaHeal =
+            if isHealer unit then
+                deltaUnitHealEveryone gameState unit
+            else
+                deltaNone
+    in
     DeltaList
-        [ deltaUnit unit.id unitMove
-        , deltaUnitHealEveryone gameState unit
+        [ deltaMove
+        , deltaHeal
         ]
 
 
@@ -217,11 +232,11 @@ Let's say healing power is limited, and every time a healer heals, it loses
 a bit of power.
 ```elm
     DeltaList
-      [ deltaUnit healed.id (healUnitBy healer.healingSpeed)
-      , deltaSpawnHealingIcon healed.position
-      -- we add this:
-      , deltaRemovePower healer
-      ]
+        [ deltaUnit healed.id (healUnitBy healer.healingSpeed)
+        , deltaSpawnHealingIcon healed.position
+        -- we add this:
+        , deltaRemovePower healer
+        ]
 ```
 
 If two healers try to heal a unit, one of them may waste some of its precious
@@ -233,9 +248,9 @@ and the power loss become a single atomic operation:
 ...
 
     DeltaList
-      [ DeltaGame (heal healer.id healed.id)
-      , deltaSpawnHealingIcon healed.position
-      ]
+        [ DeltaGame (heal healer.id healed.id)
+        , deltaSpawnHealingIcon healed.position
+        ]
 
 ...
 
@@ -247,12 +262,15 @@ heal healerId healedId gameState =
                 gameState
             else
                 let
+                    updatedHealer : Unit
                     updatedHealer =
                         { healer | healingPower = healer.healingPower - 1 }
 
+                    updatedHealed : Unit
                     updatedHealed =
                         healUnitBy healer.healingSpeed gameState healed
 
+                    updatedUnitsById : Dict UnitId Unit
                     updatedUnitsById =
                         gameState.unitsById
                             |> Dict.insert healerId updatedHealer
@@ -298,6 +316,7 @@ applyDelta delta (gameState, sideEffects) =
 
         DeltaDoLater delay delta ->
             let
+                updatedStuffToDoLater : List ( TimeLength, Delta )
                 updatedStuffToDoLater =
                     (gameState.time + delay, delta) :: gameState.stuffToDoLater
             in
@@ -310,18 +329,20 @@ updateEverything gameState =
 
         ...
 
+        ( doNow, doLater ) : ( List ( TimeLength, Delta ), List ( TimeLength, Delta ) )
         ( doNow, doLater ) =
             gameState.stuffToDoLater
                 |> List.partition (\( scheduledTime, delta ) -> scheduledTime < gameState.time)
 
+        scheduledDeltas : List Delta
         scheduledDeltas =
             List.map Tuple.second doNow
 
+        allChanges : List Delta
         allChanges =
-            DeltaList
-                [ ...
-                , DeltaList scheduledDeltas
-                ]
+            [ ...
+            , DeltaList scheduledDeltas
+            ]
     in
         applyGameDeltas allChanges { gameState | stuffToDoLater = doLater }
 ```
@@ -348,6 +369,7 @@ updateEverything gameState =
 
         ...
 
+        scheduledDeltas : List Delta
         scheduledDeltas =
             List.map (Tuple.second >> delayedDeltaToDelta) doNow
 
@@ -370,9 +392,9 @@ End note
 ========
 
 With this architecture every effect and interaction can be described in full
-without having to create and manage new type constructors or modifying modules
-other than the one where the effect is invoked, with the notable exception of
-delayed changes, as noted above.
+without having to create and manage new type constructors and without modifying
+modules other than the one where the effect is invoked, with the notable
+exception of delayed changes, as noted above.
 
 In my (limited) experience this allowed me to easily add and easily maintain
 all the complexity I wanted, make experimens on the fly and prototype new
