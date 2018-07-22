@@ -485,26 +485,16 @@ applyDelta delta (gameState, sideEffects) =
             applyDelta generatedDelta ( { gameState | seed = seed }, outcomes )
 ```
 
-Now we can declare our deltas randomly:
-
+And also some helpers:
 ```elm
-deltaSpawnBubbleGfx : Delta
-deltaSpawnBubbleGfx =
-    let
-        coordinateGenerator : Random.Generator Float
-        coordinateGenerator =
-            Random.float -10 10
-
-        positionToDelta : Float -> Float -> Delta
-        positionToDelta x y =
-            deltaAddGfx x y GfxTypeBubble
-    in
-    DeltaRandom (Random.map2 positionToDelta coordinateGenerator coordinateGenerator)
+deltaRandom : Random.Generator a -> (a -> Delta) -> Delta
+deltaRandom generator function =
+    DeltaRandom (Random.map function generator)
 
 
-deltaSometimesSpawnBubbles : Delta
-deltaSometimesSpawnBubbles =
-    deltaWithChance 0.5 deltaSpawnBubbleGfx
+deltaRandom2 : Random.Generator a -> Random.Generator b -> (a -> b -> Delta) -> Delta
+deltaRandom2 generatorA generatorB function =
+    DeltaRandom (Random.map2 function generatorA generatorB)
 
 
 deltaWithChance : Float -> Delta -> Delta
@@ -517,9 +507,21 @@ deltaWithChance chance delta =
             else
                 delta
     in
-    Random.float 0 1
-        |> Random.map rollToDelta
-        |> DeltaRandom
+    deltaRandom (Random.float 0 1) rollToDelta
+```
+
+
+Now we can declare our deltas randomly:
+
+```elm
+deltaSpawnBubbleGfx : Delta
+deltaSpawnBubbleGfx =
+    deltaRandom2 (Random.int 0 5) (Random.int 0 6) (\x y -> deltaAddGfx x y GfxTypeBubble)
+
+
+deltaSometimesSpawnBubbles : Delta
+deltaSometimesSpawnBubbles =
+    deltaWithChance 0.5 deltaSpawnBubbleGfx
 ```
 
 The nice thing is that we can compose `DeltaRandom` with all the other
@@ -529,19 +531,15 @@ delta constructors, including `DeltaList`, `DeltaDoLater`, etc...
 deltaSometimesSpawnManyBubbles : Delta
 deltaSometimesSpawnManyBubbles =
     let
-        spawnLater : Random.Generator Delta
+        spawnLater : Delta
         spawnLater =
-            Random.map (\delay -> DeltaDoLater delay deltaSpawnBubbleGfx) (Random.float 0 2000)
+            deltaRandom (Random.float 0 2000) (\delay -> DeltaDoLater delay deltaSpawnBubbleGfx)
 
         sometimesSpawnLater : Delta
         sometimesSpawnLater =
             deltaWithChance 0.3 (DeltaRandom spawnLater)
-
-        spawnMany : Random.Generator Delta
-        spawnMany =
-            Random.map (\n -> List.repeat n sometimesSpawnLater |> DeltaList) (Random.int 0 10)
     in
-    DeltaRandom spawnMany
+    deltaRandom (Random.int 0 10) (\n -> List.repeat n sometimesSpawnLater |> DeltaList)
 ```
 
 
