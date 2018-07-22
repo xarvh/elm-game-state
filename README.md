@@ -121,14 +121,14 @@ unitThink gameState unit =
             if hasDestination unit then
                 deltaUnit unit.id unitMove
             else
-                deltaNone
+                DeltaNone
 
         deltaHeal : Delta
         deltaHeal =
             if isHealer unit then
                 deltaUnitHealEveryone gameState unit
             else
-                deltaNone
+                DeltaNone
     in
     DeltaList
         [ deltaMove
@@ -487,13 +487,13 @@ applyDelta delta (gameState, sideEffects) =
 
 And also some helpers:
 ```elm
-deltaRandom : Random.Generator a -> (a -> Delta) -> Delta
-deltaRandom generator function =
+deltaRandom : (a -> Delta) -> Random.Generator a -> Delta
+deltaRandom function generator =
     DeltaRandom (Random.map function generator)
 
 
-deltaRandom2 : Random.Generator a -> Random.Generator b -> (a -> b -> Delta) -> Delta
-deltaRandom2 generatorA generatorB function =
+deltaRandom2 : (a -> b -> Delta) -> Random.Generator a -> Random.Generator b -> Delta
+deltaRandom2 function generatorA generatorB =
     DeltaRandom (Random.map2 function generatorA generatorB)
 
 
@@ -503,11 +503,11 @@ deltaWithChance chance delta =
         rollToDelta : Float -> Delta
         rollToDelta roll =
             if roll > chance then
-                deltaNone
+                DeltaNone
             else
                 delta
     in
-    deltaRandom (Random.float 0 1) rollToDelta
+    deltaRandom rollToDelta (Random.float 0 1)
 ```
 
 
@@ -516,7 +516,7 @@ Now we can declare our deltas randomly:
 ```elm
 deltaSpawnBubbleGfx : Delta
 deltaSpawnBubbleGfx =
-    deltaRandom2 (Random.int 0 5) (Random.int 0 6) (\x y -> deltaAddGfx x y GfxTypeBubble)
+    deltaRandom2 (\x y -> deltaAddGfx x y GfxTypeBubble) (Random.int 0 5) (Random.int 0 6)
 
 
 deltaSometimesSpawnBubbles : Delta
@@ -533,13 +533,13 @@ deltaSometimesSpawnManyBubbles =
     let
         spawnLater : Delta
         spawnLater =
-            deltaRandom (Random.float 0 2000) (\delay -> DeltaDoLater delay deltaSpawnBubbleGfx)
+            deltaRandom (\delay -> DeltaDoLater delay deltaSpawnBubbleGfx) (Random.float 0 2000)
 
         sometimesSpawnLater : Delta
         sometimesSpawnLater =
-            deltaWithChance 0.3 (DeltaRandom spawnLater)
+            deltaWithChance 0.3 spawnLater
     in
-    deltaRandom (Random.int 0 10) (\n -> List.repeat n sometimesSpawnLater |> DeltaList)
+    deltaRandom (\n -> List.repeat n sometimesSpawnLater |> DeltaList) (Random.int 0 10)
 ```
 
 
