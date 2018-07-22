@@ -334,6 +334,7 @@ heal healerId healedId gameState =
 ```
 
 
+
 Resolving conflicts: many units
 ===============================
 I haven't tried this, but the idea is to record the *intention* of someone
@@ -357,8 +358,9 @@ actions in the game state:
 type Delta
     ...
     | DeltaDoLater TimeLength Delta
+```
 
-
+```elm
 applyDelta : Delta -> ( GameState, List SideEffect ) -> ( GameState, List SideEffect )
 applyDelta delta (gameState, sideEffects) =
     case delta of
@@ -412,8 +414,9 @@ type DelayedDelta
 type Delta
     ...
     | DeltaDoLater TimeLength DelayedDelta
+```
 
-
+```elm
 updateEverything : GameState -> ( GameState, List SideEffect )
 updateEverything gameState =
     let
@@ -437,6 +440,88 @@ delayedDeltaToDelta delayed =
 
 This is a lot clunkier to use because for every effect you want you need to
 define a new constructor and add it to the `case` statement above.
+Worse, you lose the composability and flexibility of the deltas.
+
+
+
+Random Changes
+==============
+
+Sometimes changes should be random, and in an immutable world randomness needs
+a way to update the random seed.
+
+If we store the random seed together with the rest of the game state (as we
+should), we can create a normal `GameState -> GameState` function that will
+run `Random.step`, make the random changes and update the seed; we pass the
+function to `DeltaGame` and we're done with it.
+
+In my experience however, it's easier to express things in terms of deltas,
+because they are more flexible and can be composed quickly.
+Yet deltas cannot update the random seed before they are actually applied, so
+how do we do this?
+
+Well, we add another constructor:
+
+```elm
+type Delta
+    ...
+    | DeltaRandom (Random.Generator Delta)
+```
+
+
+```elm
+applyDelta : Delta -> ( GameState, List SideEffect ) -> ( GameState, List SideEffect )
+applyDelta delta (gameState, sideEffects) =
+    case delta of
+
+        ...
+
+        DeltaRandom deltaGenerator ->
+            let
+                ( generatedDelta, seed ) : ( Delta, Random.Seed)
+                ( generatedDelta, seed ) =
+                    Random.step deltaGenerator gameState.seed
+            in
+            applyDelta generatedDelta ( { gameState | seed = seed }, outcomes )
+```
+
+Now we can declare our deltas randomly:
+
+```elm
+deltaSpawnBubbleGfx : Delta
+deltaSpawnBubbleGfx =
+    let
+        coordinateGenerator : Random.Generator Float
+        coordinateGenerator =
+            Random.float -10 10
+
+        positionToDelta : Float -> Float -> Delta
+        positionToDelta x y =
+            deltaAddGfx x y GfxTypeBubble
+    in
+    DeltaRandom (Random.map2 positionToDelta coordinateGenerator coordinateGenerator)
+
+
+deltaSometimesSpawnBubbles : Delta
+deltaSometimesSpawnBubbles =
+    deltaWithChance 0.5 deltaSpawnBubbleGfx
+
+
+deltaWithChance : Float -> Delta -> Delta
+deltaWithChance chance delta =
+    let
+        rollToDelta : Float -> Delta
+        rollToDelta roll =
+            if roll > chance then
+                deltaNone
+            else
+                delta
+    in
+    Random.float 0 1
+        |> Random.map rollToDelta
+        |> DeltaRandom
+```
+
 
 
 End note
