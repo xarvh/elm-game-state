@@ -522,6 +522,28 @@ deltaWithChance chance delta =
         |> DeltaRandom
 ```
 
+The nice thing is that we can compose `DeltaRandom` with all the other
+delta constructors, including `DeltaList`, `DeltaDoLater`, etc...
+
+```elm
+deltaSometimesSpawnManyBubbles : Delta
+deltaSometimesSpawnManyBubbles =
+    let
+        spawnLater : Random.Generator Delta
+        spawnLater =
+            Random.map (\delay -> DeltaDoLater delay deltaSpawnBubbleGfx) (Random.float 0 2000)
+
+        sometimesSpawnLater : Delta
+        sometimesSpawnLater =
+            deltaWithChance 0.3 (DeltaRandom spawnLater)
+
+        spawnMany : Random.Generator Delta
+        spawnMany =
+            Random.map (\n -> List.repeat n sometimesSpawnLater |> DeltaList) (Random.int 0 10)
+    in
+    DeltaRandom spawnMany
+```
+
 
 
 End note
