@@ -3,10 +3,6 @@ The architecture I used for Herzog Drei has served the game very well, so I thou
 The goal is to be able to manage and update a complex, rich game state with a flat hierarchy,
 where everything can interact with everything else in every possible way.
 
-Adding any kind of interactions becomes very easy, and the interaction can be described entirely without
-creating or modifying the game state types.
-This in turn makes prototyping new stuff really fast.
-
 It's a practical implementation of the structure described by John Carmak in his
 [Quakecon 2013 talk](https://www.youtube.com/watch?v=1PhArSujR_A).
 
@@ -20,14 +16,13 @@ should produce a `Delta`:
 ```elm
 type
     Delta
-    -- if you want to change the game state
+    -- change the game state
     = DeltaGame (GameState -> GameState)
-      -- if you don't want to change anything
+      -- don't change anything
     | DeltaNone
-      -- if you want to change more than one thing
+      -- change more than one thing
     | DeltaList (List Delta)
-      -- if you want to do something that does NOT affect the game state
-      -- such as playing sounds
+      -- do something that does NOT affect the game state such as playing sounds
     | DeltaSideEffect SideEffect
 
 
@@ -155,7 +150,7 @@ Use absolute times instead of relative ones
 ===========================================
 
 Every single DeltaGame in the tree will force Elm to create a whole new copy
-of the whole game state, so the less we do, the better.
+of the whole game state, so we want to avoid using it if we can.
 
 Let's say a shooting unit has to wait for weapon cooldown before it can shoot
 again.
@@ -235,10 +230,14 @@ healing power!
 In this case, you should have a single update function, so that the healing
 and the power loss become a single atomic operation:
 ```elm
+...
+
     DeltaList
       [ DeltaGame (heal healer.id healed.id)
       , deltaSpawnHealingIcon healed.position
       ]
+
+...
 
 heal : UnitId -> UnitId -> GameState -> GameState
 heal healerId healedId gameState =
@@ -270,8 +269,8 @@ Resolving conflicts: many units
 ===============================
 I haven't tried this, but the idea is to record the *intention* of someone
 trying to do something, e.g. "unit X wants to move to square Y", then, once
-all deltas have been applied, process all the intentions in a single step
-and update the game state accordingly.
+all deltas have been applied, process all the intentions in a single step,
+resolving the conflicts, and update the game state accordingly.
 
 You can even add a dedicated constructor to the `Delta` type if you want this
 intention to be recorded outside of the game state.
@@ -300,7 +299,7 @@ applyDelta delta (gameState, sideEffects) =
         DeltaDoLater delay delta ->
             let
                 updatedStuffToDoLater =
-                    (gameState.time + delay) :: gameState.stuffToDoLater
+                    (gameState.time + delay, delta) :: gameState.stuffToDoLater
             in
                 ( { gameState | stuffToDoLater = updatedStuffToDoLater }, sideEffects )
 
@@ -327,7 +326,7 @@ updateEverything gameState =
         applyGameDeltas allChanges { gameState | stuffToDoLater = doLater }
 ```
 
-This approach has the drawback that functions will be added to the game state,
+This approach has the drawback that functions will be stored in the game state,
 which means you can't serialize it, you can't use `(==)` to compare game states
 and you can't use `elm reactor`.
 
@@ -365,3 +364,19 @@ delayedDeltaToDelta delayed =
 
 This is a lot clunkier to use because for every effect you want you need to
 define a new constructor and add it to the `case` statement above.
+
+
+End note
+========
+
+With this architecture every effect and interaction can be described in full
+without having to create and manage new type constructors or modifying modules
+other than the one where the effect is invoked, with the notable exception of
+delayed changes, as noted above.
+
+In my (limited) experience this allowed me to easily add and easily maintain
+all the complexity I wanted, make experimens on the fly and prototype new
+stuff quickly.
+
+I used to be skeptical but now I think that immutable ML languages can be
+very good for games.
