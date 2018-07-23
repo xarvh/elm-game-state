@@ -1,5 +1,5 @@
-The architecture I used for Herzog Drei has served the game very well, so I
-thought to describe it quickly.
+The architecture I used for [Herzog Drei](https://xarvh.github.io/herzog-drei/)
+has served the game very well, so I thought to describe it quickly.
 
 The goal is to be able to manage and update a complex, rich game state with a flat hierarchy,
 where everything can interact with everything else in every possible way.
@@ -218,8 +218,8 @@ is left, and the function becomes the argument to `DeltaGame`.
 Use absolute times instead of relative ones
 ===========================================
 
-Every single DeltaGame in the tree will force Elm to create a whole new copy
-of the whole game state, so we want to avoid using it if we can.
+Every single DeltaGame in the tree will force Elm to create a new copy (however
+shallow) of the whole game state, so we want to avoid using it if we can.
 
 Let's say a shooting unit has to wait for weapon cooldown before it can shoot
 again.
@@ -382,7 +382,7 @@ updateEverything gameState =
 
         ...
 
-        ( doNow, doLater ) : ( List ( TimeLength, Delta ), List ( TimeLength, Delta ) )
+        -- ( List ( TimeLength, Delta ), List ( TimeLength, Delta ) )
         ( doNow, doLater ) =
             gameState.stuffToDoLater
                 |> List.partition (\( scheduledTime, delta ) -> scheduledTime < gameState.time)
@@ -471,14 +471,14 @@ type Delta
 
 ```elm
 applyDelta : Delta -> ( GameState, List SideEffect ) -> ( GameState, List SideEffect )
-applyDelta delta (gameState, sideEffects) =
+applyDelta delta ( gameState, sideEffects ) =
     case delta of
 
         ...
 
         DeltaRandom deltaGenerator ->
             let
-                ( generatedDelta, seed ) : ( Delta, Random.Seed)
+                -- ( Delta, Random.Seed )
                 ( generatedDelta, seed ) =
                     Random.step deltaGenerator gameState.seed
             in
@@ -553,7 +553,7 @@ modules other than the one where the effect is invoked, with the notable
 exception of delayed changes, as noted above.
 
 In my (limited) experience this allowed me to easily add and easily maintain
-all the complexity I wanted, make experimens on the fly and prototype new
+all the complexity I wanted, make experiments on the fly and prototype new
 stuff quickly.
 
 I used to be skeptical but now I think that immutable ML languages can be
