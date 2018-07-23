@@ -8,6 +8,10 @@ It's a practical implementation of the structure described by John Carmak in his
 [Quakecon 2013 talk](https://www.youtube.com/watch?v=1PhArSujR_A) and it makes
 heavy use of partially applied functions.
 
+If you find any mistake or have any suggestions for improvements, please
+[open an issue](https://github.com/xarvh/elm-game-state/issues).
+Thanks! <3
+
 
 
 The basic idea
@@ -232,7 +236,7 @@ deltaUnitShoots : GameState -> Unit -> Unit -> Delta
 deltaUnitShoots gameState unit target =
     DeltaList
         [ deltaSpawnProjectile unit target
-        , deltaUnit unit.id (\gameState u -> { u | cooldown = gameState.attackCooldown })
+        , deltaUnit unit.id (\gs u -> { u | cooldown = gs.attackCooldown })
         ]
 
 
@@ -241,7 +245,7 @@ unitThink gameState unit =
     DeltaList
         [ ...
         , ...
-        , deltaUnit unit.id (\gameState u -> { u | cooldown = max 0 (unit.cooldown - 1) })
+        , deltaUnit unit.id (\gs u -> { u | cooldown = max 0 (unit.cooldown - 1) })
         ]
 
 
@@ -259,7 +263,7 @@ deltaUnitShoots : GameState -> Unit -> Unit -> Delta
 deltaUnitShoots gameState unit target =
     DeltaList
         [ deltaSpawnProjectile unit target
-        , deltaUnit unit.id (\gameState u -> { u | cooldownEnd = gameState.time + gameState.attackCooldown })
+        , deltaUnit unit.id (\gs u -> { u | cooldownEnd = gs.time + gs.attackCooldown })
         ]
 
 
@@ -307,7 +311,7 @@ and the power loss become a single atomic operation:
 ```elm
 heal : UnitId -> UnitId -> GameState -> GameState
 heal healerId healedId gameState =
-    case Dict.get healerId gameState.unitsById (Dict.get healedId gameState.unitsById) of
+    case ( Dict.get healerId gameState.unitsById, Dict.get healedId gameState.unitsById ) of
         ( Just healer, Just healed ) ->
             if healer.power == 0 || healed.life == gameState.maxUnitLife then
                 gameState
@@ -447,8 +451,8 @@ Worse, you lose the composability and flexibility of the deltas.
 Random Changes
 ==============
 
-Sometimes changes should be random, and in an immutable world randomness needs
-a way to update the random seed.
+Sometimes changes should be random, and in an immutable world using randomness
+means updating the random seed that is stored in the Model.
 
 If we store the random seed together with the rest of the game state (as we
 should), we can create a normal `GameState -> GameState` function that will
@@ -511,11 +515,12 @@ deltaWithChance chance delta =
 ```
 
 
-Now we can declare our deltas randomly:
+Now we can declare our deltas using randomness:
 
 ```elm
 deltaSpawnBubbleGfx : Delta
 deltaSpawnBubbleGfx =
+    -- deltaAddGfx : Int -> Int -> GfxType -> Delta
     deltaRandom2 (\x y -> deltaAddGfx x y GfxTypeBubble) (Random.int 0 5) (Random.int 0 6)
 
 
@@ -556,5 +561,6 @@ In my (limited) experience this allowed me to easily add and easily maintain
 all the complexity I wanted, make experiments on the fly and prototype new
 stuff quickly.
 
-I used to be skeptical but now I think that immutable ML languages can be
-very good for games.
+I was initially skeptical about using immutable languages for games, but I
+changed my mind and I think that, especially if they offer union types (aka
+*algebraic data types*) they can in fact be very good.
