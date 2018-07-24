@@ -60,7 +60,7 @@ updateEverything gameState =
             , ...
             ]
     in
-        applyGameDeltas allChanges gameState
+    applyGameDeltas allChanges gameState
 
 
 applyGameDeltas : List Delta -> GameState -> ( GameState, List SideEffect )
@@ -69,19 +69,19 @@ applyGameDeltas deltas gameState =
 
 
 applyDelta : Delta -> ( GameState, List SideEffect ) -> ( GameState, List SideEffect )
-applyDelta delta (gameState, sideEffects) =
+applyDelta delta ( gameState, sideEffects ) =
     case delta of
         DeltaNone ->
-            (gameState, sideEffects)
+            ( gameState, sideEffects )
 
         DeltaList deltas ->
-            List.foldl applyDelta (gameState, sideEffects) deltas
+            List.foldl applyDelta ( gameState, sideEffects ) deltas
 
         DeltaGame updateGameState ->
-            (updateGameState gameState, sideEffects)
+            ( updateGameState gameState, sideEffects )
 
         DeltaSideEffect sideEffect ->
-            (gameState, sideEffects :: sideEffects)
+            ( gameState, sideEffects :: sideEffects )
 ```
 
 
@@ -236,6 +236,8 @@ deltaUnitShoots : GameState -> Unit -> Unit -> Delta
 deltaUnitShoots gameState unit target =
     DeltaList
         [ deltaSpawnProjectile unit target
+        -- `unit` and `gameState` refer to the state *before* delta application
+        -- `u` and `gs` refer to the state *during* delta application
         , deltaUnit unit.id (\gs u -> { u | cooldown = gs.attackCooldown })
         ]
 
@@ -253,10 +255,9 @@ unitCanFire : Unit -> Bool
 unitCanFire unit =
     unit.cooldown == 0
 ```
-This required a DeltaGame for each unit, for each tick, and it's easy to see
-that it can grow fast...
+This required one DeltaGame per unit per game tick, just for cooldown.
 
-A better approach is to just store the absolute time of when the unit will
+A better approach is to store only the absolute time of when the unit will
 be ready to fire again, and allow the unit to fire only past that time:
 ```elm
 deltaUnitShoots : GameState -> Unit -> Unit -> Delta
@@ -389,7 +390,7 @@ updateEverything gameState =
         -- ( List ( TimeLength, Delta ), List ( TimeLength, Delta ) )
         ( doNow, doLater ) =
             gameState.stuffToDoLater
-                |> List.partition (\( scheduledTime, delta ) -> scheduledTime < gameState.time)
+                |> List.partition (\( scheduledTime, delta ) -> gameState.time >= scheduledTime)
 
         scheduledDeltas : List Delta
         scheduledDeltas =
